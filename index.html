@@ -151,7 +151,9 @@
       <div class="floors" id="floorBtns"></div>
     </div>
     <div class="glass sheet" id="sheet">
+      <div class="seg" id="modeRow" hidden style="margin-bottom:10px"></div>
       <div class="instr"><div class="ic" id="instrIcon"></div><div><div class="tx" id="instrText"></div><div class="sx" id="instrSub"></div></div></div>
+      <div id="diag" hidden style="font-size:11px;line-height:1.5;white-space:pre-line;color:#9fdcff;background:rgba(0,0,0,.35);border-radius:8px;padding:6px 8px;margin:6px 0 2px;font-family:ui-monospace,Menlo,monospace"></div>
       <div class="row">
         <button class="btn pri" id="btnShoot"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg><span data-t="shoot"></span></button>
         <button class="iconbtn" id="btnMenu" aria-label="menu"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="19" cy="12" r="1.3"/></svg></button>
@@ -169,7 +171,7 @@
   <section class="screen" id="admin" hidden>
     <div class="bar" style="padding-top:calc(env(safe-area-inset-top) + 8px)">
       <button data-at="dest">目的地</button><button data-at="start">出発地点(紙)</button><button data-at="net">通路</button>
-      <button data-at="th">しきい値</button><button data-at="log">ログ</button><button data-at="exp">書き出し</button><button id="admClose">閉じる</button>
+      <button data-at="tag">目印</button><button data-at="th">しきい値</button><button data-at="log">ログ</button><button data-at="exp">書き出し</button><button id="admClose">閉じる</button>
     </div>
     <div class="bar" style="padding-top:6px"><span id="admFloors" style="display:flex;gap:6px"></span><span class="sub" id="admHint" style="align-self:center"></span></div>
     <div id="amap" style="position:absolute;left:0;right:0;bottom:0;overflow:hidden;touch-action:none;background:#f4f4f2"><div id="aworld" style="position:absolute;left:0;top:0;transform-origin:0 0"><img id="aplan" alt="" style="display:block;pointer-events:none"><svg id="aov" style="position:absolute;left:0;top:0;overflow:visible;pointer-events:none"></svg></div></div>
@@ -192,8 +194,8 @@ const STR = { ja: {
   shoot:"屋内測位（撮影）", recenter:"全体表示", arrived:"到着", endSession:"終了",
   firstShot:"周りを撮影して現在地を調べましょう", firstShotSub:"「屋内測位」を押して、看板や柱など特徴のある方向を撮影してください。",
   fail:"位置を特定できません", failSub:"別の方向を撮影してください。",
-  go:"{dir}", goSub:"目的地まで約{m}m", goFloor:"エレベーターで{f}へ", goFloorSub:"{f}に着いたら、もう一度撮影してください。",
-  toEv:"{dir}", toEvSub:"エレベーターまで約{m}m → {f}へ",
+  go:"{dir}", goSub:"目的地まで約{m}m", goFloor:"{via}で{f}へ", goFloorSub:"{f}に着いたら、もう一度撮影してください。", viaEv:"エレベーター", viaSt:"階段", routeEv:"エレベーター", routeSt:"階段",
+  toEv:"{dir}", toEvSub:"{via}まで約{m}m → {f}へ",
   arrive:"目的地に到着しました", arriveSub:"お疲れさまでした。",
   straight:"まっすぐ進んでください", right:"右に進んでください", left:"左に進んでください", back:"後ろに進んでください", ahead:"ルートに沿って進んでください",
   noRoute:"ルートが見つかりません", noRouteSub:"「案内の設定」で通路のつながりを確認してください。",
@@ -210,20 +212,22 @@ const $=id=>document.getElementById(id);
 const FLOORS=["1F","3F"];
 const DEFAULT_CFG={
   thresholds:{minInliers:20,minConf:0.25,rivalDist:6,arriveDist:3},
+  tags:[], tagSize:0.16, f35:28, tagMaxDist:12,   // 人工ランドマーク（AprilTag）：登録一覧・一辺(m)・35mm換算焦点距離・使う最大距離(m)
   dests:[], start:null,
-  floorCost:15,
+  floorCost:15, stairsCost:20,
   network:{nodes:[
     {id:"EV1",floor:"1F",px:[2060,760],kind:"ev"},{id:"EH1",floor:"1F",px:[1995,850]},{id:"ED1",floor:"1F",px:[2075,930]},
-    {id:"P04",floor:"1F",px:[1770,778]},
+    {id:"P04",floor:"1F",px:[1770,778]},{id:"ST1",floor:"1F",px:[1222,1135],kind:"stairs"},
     {id:"P08",floor:"1F",px:[828,1037]},{id:"P07",floor:"1F",px:[1175,1179]},{id:"P06",floor:"1F",px:[1526,1068]},{id:"P05",floor:"1F",px:[1838,1049]},
     {id:"P01",floor:"1F",px:[2079,1076]},{id:"P02",floor:"1F",px:[2445,1076]},{id:"P03",floor:"1F",px:[2975,1163]},
     {id:"EV3",floor:"3F",px:[1263,160],kind:"ev"},{id:"ED3",floor:"3F",px:[1265,215]},
     {id:"P10",floor:"3F",px:[1013,234]},{id:"P11",floor:"3F",px:[688,236]},{id:"P12",floor:"3F",px:[502,422]},{id:"P13",floor:"3F",px:[497,658]},
-    {id:"P14",floor:"3F",px:[854,669]},{id:"P15",floor:"3F",px:[1185,696]},{id:"P09",floor:"3F",px:[1215,471]},{id:"P16",floor:"3F",px:[1187,309]}],
+    {id:"P14",floor:"3F",px:[854,669]},{id:"ST3",floor:"3F",px:[872,550],kind:"stairs"},{id:"P15",floor:"3F",px:[1185,696]},{id:"P09",floor:"3F",px:[1215,471]},{id:"P16",floor:"3F",px:[1187,309]}],
    edges:[["EV1","EH1"],["EV1","ED1"],["EH1","P04"],["EH1","ED1"],["ED1","P01"],
     ["P08","P07"],["P08","P06"],["P07","P06"],["P06","P05"],["P05","P01"],["P01","P02"],["P02","P03"],
     ["EV3","ED3"],["ED3","P16"],["ED3","P10"],["P10","P11"],["P11","P12"],["P12","P13"],["P13","P14"],["P14","P15"],["P15","P09"],["P09","P16"],["P16","P10"],
-    ["EV1","EV3","floor"]]}
+    ["ST1","P07"],["ST1","P06"],["ST3","P14"],
+    ["EV1","EV3","ev"],["ST1","ST3","stairs"]]}
 };
 let MODE="claude";            // "file"（HTML版） or "claude"
 let BASE=null;                // {cal, points, refs}
@@ -345,6 +349,83 @@ async function estimate(blob){
   const px=[near.reduce((a,s)=>a+s.n*s.e.ref.px[0],0)/W, near.reduce((a,s)=>a+s.n*s.e.ref.px[1],0)/W];
   return {...base, ok:true, conf, floor:best.e.ref.floor, px, dir:best.e.ref.dir, point:best.e.ref.point, bestFile:best.e.ref.file};
 }
+// =====================================================================
+// 人工ランドマーク（AprilTag 36h11）：検出と位置・向きの計算
+// 目印の座標系：x＝目印に向かって右、y＝上、z＝目印の正面（手前）方向
+// =====================================================================
+let TAGDET=null;
+function tagInit(){
+  if(TAGDET) return TAGDET;
+  const dict=CV.getPredefinedDictionary(CV.DICT_APRILTAG_36h11);
+  const p=new CV.aruco_DetectorParameters(); try{ p.cornerRefinementMethod=1; }catch(e){} // 1＝SUBPIX（角の位置を細かく合わせる）
+  TAGDET=new CV.aruco_ArucoDetector(dict,p,new CV.aruco_RefineParameters(10,3,true));
+  return TAGDET;
+}
+// 白黒画像から目印を探し、各目印に対するカメラの位置（目印座標系, m）と向きを返す
+// f35：35mm判換算の焦点距離（iPhone SE 第2・3世代の広角カメラは28mm）
+function tagPoses(gray,size,f35){
+  const det=tagInit(); const W=gray.cols, H=gray.rows;
+  const corners=new CV.MatVector(), ids=new CV.Mat(), rej=new CV.MatVector();
+  det.detectMarkers(gray,corners,ids,rej);
+  const f=f35/43.27*Math.hypot(W,H);
+  const K=CV.matFromArray(3,3,CV.CV_64F,[f,0,W/2, 0,f,H/2, 0,0,1]), dist=CV.Mat.zeros(4,1,CV.CV_64F);
+  const out=[];
+  for(let i=0;i<ids.rows;i++){
+    const id=ids.data32S[i], c=Array.from(corners.get(i).data32F);
+    const sz=typeof size==="function"?size(id):size, h=sz/2;
+    const obj=CV.matFromArray(4,1,CV.CV_32FC3,[-h,h,0, h,h,0, h,-h,0, -h,-h,0]);
+    const img=CV.matFromArray(4,1,CV.CV_32FC2,c);
+    const rv=new CV.Mat(), tv=new CV.Mat(), Rm=new CV.Mat();
+    let ok=false; try{ ok=CV.solvePnP(obj,img,K,dist,rv,tv,false,CV.SOLVEPNP_IPPE_SQUARE); }catch(e){ ok=false; }
+    if(ok){
+      CV.Rodrigues(rv,Rm); const R=Rm.data64F, t=tv.data64F;
+      // カメラの位置 C＝−Rᵀt、カメラの視線方向 a＝Rᵀ(0,0,1)
+      const C=[-(R[0]*t[0]+R[3]*t[1]+R[6]*t[2]), -(R[1]*t[0]+R[4]*t[1]+R[7]*t[2]), -(R[2]*t[0]+R[5]*t[1]+R[8]*t[2])];
+      const a=[R[6],R[7],R[8]];
+      const side=Math.max(...[0,1,2,3].map(k=>Math.hypot(c[2*k]-c[(2*k+2)%8],c[2*k+1]-c[(2*k+3)%8])));
+      out.push({id, C, a, dist:Math.hypot(C[0],C[2]), angle:Math.atan2(C[0],C[2])*180/Math.PI, sidePx:side, corners:c});
+    }
+    obj.delete(); img.delete(); rv.delete(); tv.delete(); Rm.delete();
+  }
+  K.delete(); dist.delete(); corners.delete(); ids.delete(); rej.delete();
+  return out;
+}
+// 目印の登録情報（地図上の位置 m・面が向く方向 θ）から、利用者の地図上の位置（m）と向き（°、図面の上＝0で時計回り）を求める
+function tagToMap(pose,tagM,face){
+  const th=face*Math.PI/180, n=[Math.sin(th),Math.cos(th)], r=[-Math.cos(th),Math.sin(th)];
+  const x=tagM[0]+pose.C[2]*n[0]+pose.C[0]*r[0], y=tagM[1]+pose.C[2]*n[1]+pose.C[0]*r[1];
+  const dx=pose.a[2]*n[0]+pose.a[0]*r[0], dy=pose.a[2]*n[1]+pose.a[0]*r[1];
+  return {m:[x,y], dir:(Math.atan2(dx,dy)*180/Math.PI+360)%360};
+}
+
+function fromM(m,f){ const c=BASE.cal[f], k=ppm(f); return [c.origin[0]+m[0]*k, c.origin[1]-m[1]*k]; }
+// 写真から目印を探す（縮小しすぎると遠くの目印が読めないため、長辺3200画素まで）
+async function detectTagsInFile(blob){
+  const bmp=await createImageBitmap(blob); const s=Math.min(1,3200/Math.max(bmp.width,bmp.height));
+  const w=Math.round(bmp.width*s), h=Math.round(bmp.height*s); const cv=document.createElement("canvas"); cv.width=w; cv.height=h;
+  cv.getContext("2d").drawImage(bmp,0,0,w,h); if(bmp.close) bmp.close();
+  const src=CV.imread(cv), g=new CV.Mat(); CV.cvtColor(src,g,CV.COLOR_RGBA2GRAY); src.delete(); cv.width=cv.height=0;
+  const poses=tagPoses(g,CFG.tagSize,CFG.f35); g.delete();
+  return poses.map(p=>{ const reg=(CFG.tags||[]).find(t=>t.id===p.id); if(!reg) return {...p,reg:null};
+    const r=tagToMap(p,toM(reg.px,reg.floor),reg.face); return {...p,reg,floor:reg.floor,px:fromM(r.m,reg.floor),dir:r.dir}; });
+}
+// 目印を優先し、使える目印がなければVPS（画像照合）で推定する
+async function locate(blob){
+  let tags=[]; try{ tags=await detectTagsInFile(blob); }catch(e){ tags=[]; }
+  const seen=tags.map(p=>p.id+(p.reg?"":"(未登録)")+"@"+p.dist.toFixed(1)+"m").join(" ");
+  const use=tags.filter(p=>p.reg&&p.dist<=CFG.tagMaxDist).sort((a,b)=>a.dist-b.dist)[0];
+  if(use) return {ok:true, method:"tag", floor:use.floor, px:use.px, dir:Math.round(use.dir), conf:1, inliers:"", top:[], tag:use, tagsSeen:seen};
+  const r=await estimate(blob); return {...r, method:"vps", tagsSeen:seen};
+}
+function diagOn(){ return !!lsGet("vpsguide_diag",false); }
+function diagText(res){
+  const a=[];
+  if(res.method==="tag"){ const p=res.tag; a.push(`目印 ID${p.id}・距離${p.dist.toFixed(1)}m・正面から${p.angle>=0?"右":"左"}${Math.abs(p.angle).toFixed(0)}°・一辺${p.sidePx.toFixed(0)}画素`); }
+  else { a.push(res.tagsSeen?`目印：${res.tagsSeen}（使える目印なし）`:"目印：写っていない");
+    const tp=(res.top||[])[0]; a.push(`VPS：${res.ok?"成功":"失敗（"+({low_inliers:"一致点不足",low_conf:"信頼度不足"}[res.reason]||res.reason)+"）"}・一致点${res.inliers||0}${tp?"（"+tp.file.replace(".jpg","")+"）":""}・信頼度${(res.conf||0).toFixed(2)}`); }
+  if(res.ok){ const m=toM(res.px,res.floor); a.push(`推定：${res.floor} x=${m[0].toFixed(1)} y=${m[1].toFixed(1)}m・向き${Math.round(res.dir)}°`); }
+  return a.join("\n");
+}
 
 // =====================================================================
 // 座標・ルート（ダイクストラ法）
@@ -352,19 +433,24 @@ async function estimate(blob){
 function ppm(f){ const c=BASE.cal[f]; return Math.hypot(c.scaleB[0]-c.scaleA[0],c.scaleB[1]-c.scaleA[1])/c.scaleM; }
 function toM(px,f){ const c=BASE.cal[f], k=ppm(f); return [(px[0]-c.origin[0])/k,(c.origin[1]-px[1])/k]; }
 const nodeById=id=>CFG.network.nodes.find(n=>n.id===id);
-function edgeLen(a,b,type){ if(type==="floor"||a.floor!==b.floor) return CFG.floorCost; return Math.hypot(a.px[0]-b.px[0],a.px[1]-b.px[1])/ppm(a.floor); }
+// 階をつなぐ線：type が "ev"（エレベーター）／"stairs"（階段）。旧形式の "floor" はエレベーター扱い
+const isLink=t=>t==="floor"||t==="ev"||t==="stairs";
+const linkKind=t=>t==="stairs"?"stairs":"ev";
+function edgeLen(a,b,type){ if(isLink(type)||a.floor!==b.floor) return linkKind(type)==="stairs"?(CFG.stairsCost??20):CFG.floorCost; return Math.hypot(a.px[0]-b.px[0],a.px[1]-b.px[1])/ppm(a.floor); }
 // 点を同じ階の最も近い通路に寄せる
 function snap(px,floor){
   let best=null;
-  for(const [ia,ib,type] of CFG.network.edges){ if(type==="floor") continue; const a=nodeById(ia), b=nodeById(ib); if(!a||!b||a.floor!==floor||b.floor!==floor) continue;
+  for(const [ia,ib,type] of CFG.network.edges){ if(isLink(type)) continue; const a=nodeById(ia), b=nodeById(ib); if(!a||!b||a.floor!==floor||b.floor!==floor) continue;
     const dx=b.px[0]-a.px[0], dy=b.px[1]-a.px[1], L2=dx*dx+dy*dy||1; let u=((px[0]-a.px[0])*dx+(px[1]-a.px[1])*dy)/L2; u=Math.max(0,Math.min(1,u));
     const q=[a.px[0]+u*dx,a.px[1]+u*dy], d=Math.hypot(q[0]-px[0],q[1]-px[1]); if(!best||d<best.d) best={d,q,a,b}; }
   return best;
 }
-function route(from,fromFloor,to,toFloor){
+function route(from,fromFloor,to,toFloor,mode="any"){
   const sA=snap(from,fromFloor), sB=snap(to,toFloor); if(!sA||!sB) return null;
   const nodes=new Map(CFG.network.nodes.map(n=>[n.id,n])); const adj=new Map(); const add=(u,v,w)=>{ if(!adj.has(u)) adj.set(u,[]); adj.get(u).push([v,w]); };
-  for(const [a,b,type] of CFG.network.edges){ const A=nodes.get(a),B=nodes.get(b); if(!A||!B) continue; const w=edgeLen(A,B,type); add(a,b,w); add(b,a,w); }
+  for(const [a,b,type] of CFG.network.edges){ const A=nodes.get(a),B=nodes.get(b); if(!A||!B) continue;
+    if(isLink(type)&&mode!=="any"&&linkKind(type)!==mode) continue;
+    const w=edgeLen(A,B,type); add(a,b,w); add(b,a,w); }
   nodes.set("@S",{id:"@S",floor:fromFloor,px:sA.q}); nodes.set("@T",{id:"@T",floor:toFloor,px:sB.q});
   const k=f=>ppm(f);
   for(const n of [sA.a,sA.b]){ const w=Math.hypot(n.px[0]-sA.q[0],n.px[1]-sA.q[1])/k(fromFloor); add("@S",n.id,w); add(n.id,"@S",w); }
@@ -376,7 +462,9 @@ function route(from,fromFloor,to,toFloor){
   if(!dist.has("@T")) return null;
   const path=[]; for(let u="@T";u;u=prev.get(u)) path.unshift(nodes.get(u));
   const tail=Math.hypot(to[0]-sB.q[0],to[1]-sB.q[1]); if(tail>1) path.push({id:"@D",floor:toFloor,px:to});
-  return {path, length:dist.get("@T")+tail/ppm(toFloor), startSnap:sA.q};
+  const links=[]; let via=null;
+  for(let i=0;i+1<path.length;i++){ const a=path[i], b=path[i+1]; if(a.floor!==b.floor){ const e=CFG.network.edges.find(e=>(e[0]===a.id&&e[1]===b.id)||(e[1]===a.id&&e[0]===b.id)); const k=linkKind(e?e[2]:"ev"); via=via||k; links.push({floor:a.floor,px:a.px,kind:k},{floor:b.floor,px:b.px,kind:k}); } }
+  return {path, length:dist.get("@T")+tail/ppm(toFloor), startSnap:sA.q, links, via};
 }
 // ルートを階ごとの区間に分ける
 function legs(r){ const out=[]; let cur=null; for(const n of r.path){ if(!cur||cur.floor!==n.floor){ cur={floor:n.floor,pts:[]}; out.push(cur); } cur.pts.push(n.px); } return out; }
@@ -418,6 +506,7 @@ const ICON={
   right:'<svg viewBox="0 0 24 24" fill="none" stroke="#5fe1ff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 20v-7a4 4 0 014-4h9M14 4l5 5-5 5"/></svg>',
   left:'<svg viewBox="0 0 24 24" fill="none" stroke="#5fe1ff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 20v-7a4 4 0 00-4-4H5M10 4L5 9l5 5"/></svg>',
   back:'<svg viewBox="0 0 24 24" fill="none" stroke="#5fe1ff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4v9a5 5 0 0010 0V9M5 7l3-3 3 3"/></svg>',
+  stairs:'<svg viewBox="0 0 24 24" fill="none" stroke="#5fe1ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19h4v-4h4v-4h4V7h4"/></svg>',
   ev:'<svg viewBox="0 0 24 24" fill="none" stroke="#5fe1ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 9l3-3 3 3M9 15l3 3 3-3"/></svg>',
   scan:'<svg viewBox="0 0 24 24" fill="none" stroke="#5fe1ff" stroke-width="2" stroke-linecap="round"><path d="M4 8V5a1 1 0 011-1h3M16 4h3a1 1 0 011 1v3M20 16v3a1 1 0 01-1 1h-3M8 20H5a1 1 0 01-1-1v-3M4 12h16"/></svg>',
   warn:'<svg viewBox="0 0 24 24" fill="none" stroke="#ffb86b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4l9 16H3z"/><path d="M12 10v4M12 17h.01"/></svg>',
@@ -429,6 +518,8 @@ function destMarker(p,s){ return `<g transform="translate(${p[0]} ${p[1]}) scale
   <path d="M-6 9V-9M-6 -9h11l-3 4.5 3 4.5h-11" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></g>`; }
 function evMarker(p,s){ return `<g transform="translate(${p[0]} ${p[1]}) scale(${1/s})"><rect x="-14" y="-14" width="28" height="28" rx="5" fill="#1a1a1a" stroke="#ffffff" stroke-width="1.6"/>
   <text y="5" font-size="13" text-anchor="middle" fill="#ffffff" font-weight="700" font-family="-apple-system,sans-serif">EV</text></g>`; }
+function stairMarker(p,s){ return `<g transform="translate(${p[0]} ${p[1]}) scale(${1/s})"><rect x="-14" y="-14" width="28" height="28" rx="5" fill="#1a1a1a" stroke="#ffffff" stroke-width="1.6"/>
+  <path d="M-8 8h5v-5h5v-5h5v-5h4" fill="none" stroke="#fff" stroke-width="2.4" stroke-linejoin="round"/></g>`; }
 function youMarker(p,dir,s,showCone=true){ const L=78, hw=28*Math.PI/180;
   const cone=showCone?`<path d="M0 0 L${L*Math.sin(-hw)} ${-L*Math.cos(-hw)} A${L} ${L} 0 0 1 ${L*Math.sin(hw)} ${-L*Math.cos(hw)} Z" fill="url(#coneG)" transform="rotate(${dir})"/>`:"";
   return `<g transform="translate(${p[0]} ${p[1]}) scale(${1/s})">${cone}<circle class="ring" r="15"/><circle r="11" fill="#e9fbff"/><circle r="7.5" fill="#2f6dff"/></g>`; }
@@ -456,53 +547,72 @@ function fitGuide(){
   if(G.route) for(const l of legs(G.route)) if(l.floor===f) pts=pts.concat(l.pts);
   if(G.est&&G.est.floor===f) pts.push(G.est.px);
   if(G.dest&&G.dest.floor===f) pts.push(G.dest.px);
-  if(!pts.length){ const P=PLAN[f]; GV.fit([0,0,P.w,P.h],90,170); return; }
-  const xs=pts.map(p=>p[0]), ys=pts.map(p=>p[1]); GV.fit([Math.min(...xs),Math.min(...ys),Math.max(...xs),Math.max(...ys)],100,175);
+  const bottom=($("sheet").offsetHeight||160)+18;
+  if(!pts.length){ const P=PLAN[f]; GV.fit([0,0,P.w,P.h],90,bottom); return; }
+  const xs=pts.map(p=>p[0]), ys=pts.map(p=>p[1]); GV.fit([Math.min(...xs),Math.min(...ys),Math.max(...xs),Math.max(...ys)],100,bottom);
 }
 function drawGuide(){
   if(!GV) return; const f=G.viewFloor, s=GV.s; let h=DEFS;
   if(G.route) for(const l of legs(G.route)) if(l.floor===f) h+=routeSvg(l.pts);
-  if(G.route){ for(const n of G.route.path) if(n.kind==="ev"&&n.floor===f) h+=evMarker(n.px,s); }
   if(G.dest&&G.dest.floor===f) h+=destMarker(G.dest.px,s);
   if(G.est&&G.est.floor===f) h+=youMarker(G.route?G.route.startSnap:G.est.px,G.est.dir,s);
   $("ov").innerHTML=h;
 }
 function setInstr(icon,text,sub,cls){ $("instrIcon").innerHTML=ICON[icon]; $("instrText").textContent=text; $("instrSub").textContent=sub||""; const sh=$("sheet"); sh.classList.remove("warn","ok"); if(cls) sh.classList.add(cls); }
 function startGuide(dest){
-  G.dest=dest; G.est=null; G.route=null; SESSION.destination=dest.custom?dest.label:dest.name; SESSION.dest=clone(dest); saveSession();
+  G.dest=dest; G.est=null; G.route=null; G.routeMode=null; G.lastRes=null; if($("modeRow")) $("modeRow").hidden=true; SESSION.destination=dest.custom?dest.label:dest.name; SESSION.dest=clone(dest); saveSession();
   show("sGuide"); if(!GV) setupGuide(); $("hudDest").textContent=dest.name; $("hudMeta").textContent=dest.custom?dest.label:dest.floor;
   viewFloor(dest.floor,true); setInstr("scan",t("firstShot"),t("firstShotSub"));
 }
 async function doShot(file){
   G.busy=true; $("btnShoot").disabled=true; $("scan").classList.add("on"); const t0=performance.now(); const now=Date.now();
-  let res; try{ res=await estimate(file); }catch(e){ res={ok:false,reason:"error:"+(e.message||e),conf:0,inliers:0,top:[]}; }
+  let res; try{ res=await locate(file); }catch(e){ res={ok:false,method:"vps",reason:"error:"+(e.message||e),conf:0,inliers:0,top:[]}; }
   const ms=Math.round(performance.now()-t0);
   $("scan").classList.remove("on"); G.busy=false; $("btnShoot").disabled=false;
   const shot={ shot_no:SESSION.shots.length+1, time:new Date(now).toISOString(), since_start_s:((now-SESSION.startMs)/1000).toFixed(1),
     since_prev_s:SESSION.shots.length?((now-SESSION.lastShotMs)/1000).toFixed(1):"", result:res.ok?"success":"reject", reason:res.ok?"":res.reason,
     floor:"", x_m:"", y_m:"", dir_deg:"", inliers:res.inliers, conf:(res.conf||0).toFixed(3), best_point:res.point||"", best_file:res.bestFile||"", proc_ms:ms,
-    route_nodes:"", route_length_m:"", instruction:"", top5:(res.top||[]).map(x=>x.file+":"+x.n).join(" ") };
+    route_nodes:"", route_length_m:"", instruction:"", top5:(res.top||[]).map(x=>x.file+":"+x.n).join(" "),
+    method:res.method||"", tag_id:res.tag?res.tag.id:"", tag_dist_m:res.tag?res.tag.dist.toFixed(2):"", tag_angle_deg:res.tag?res.tag.angle.toFixed(1):"", tag_side_px:res.tag?res.tag.sidePx.toFixed(0):"", tags_seen:res.tagsSeen||"" };
+  $("diag").hidden=!diagOn(); if(diagOn()) $("diag").textContent=diagText(res);
   SESSION.lastShotMs=now;
   if(!res.ok){ setInstr("warn",t("fail"),t("failSub"),"warn"); shot.instruction=t("fail"); pushShot(shot); return; }
-  G.est={floor:res.floor,px:res.px,dir:res.dir}; const m=toM(res.px,res.floor);
+  G.est={floor:res.floor,px:res.px,dir:res.dir}; G.lastRes=res; const m=toM(res.px,res.floor);
   Object.assign(shot,{floor:res.floor,x_m:m[0].toFixed(2),y_m:m[1].toFixed(2),dir_deg:res.dir});
-  G.route=route(res.px,res.floor,G.dest.px,G.dest.floor);
-  if(!G.route){ setInstr("warn",t("noRoute"),t("noRouteSub"),"warn"); shot.instruction=t("noRoute"); pushShot(shot); viewFloor(res.floor,true); return; }
-  shot.route_nodes=G.route.path.map(n=>n.id).join(">"); shot.route_length_m=G.route.length.toFixed(1);
-  const L=legs(G.route); const here=L[0]; const remain=G.route.length;
   const destM=toM(G.dest.px,G.dest.floor);
   if(res.floor===G.dest.floor && Math.hypot(m[0]-destM[0],m[1]-destM[1])<=CFG.thresholds.arriveDist){
+    G.route=route(res.px,res.floor,G.dest.px,G.dest.floor); $("modeRow").hidden=true;
     setInstr("flag",t("arrive"),t("arriveSub"),"ok"); shot.instruction=t("arrive"); pushShot(shot); viewFloor(res.floor,true); markArrived("auto"); return; }
-  // 進む方向（最初の区間）
+  applyRoute(shot); pushShot(shot); viewFloor(res.floor,true);
+}
+// ルートを計算して案内文を出す。階をまたぐときはエレベーター経由と階段経由の両方を計算し、利用者が選べる
+function applyRoute(shot){
+  const res=G.lastRes; const cross=res.floor!==G.dest.floor;
+  if(cross){
+    const a={ev:route(res.px,res.floor,G.dest.px,G.dest.floor,"ev"), stairs:route(res.px,res.floor,G.dest.px,G.dest.floor,"stairs")};
+    if(!G.routeMode||!a[G.routeMode]) G.routeMode=(a.ev&&a.stairs)?(a.ev.length<=a.stairs.length?"ev":"stairs"):(a.ev?"ev":"stairs");
+    G.route=a[G.routeMode]; renderModeRow(a);
+  } else { G.route=route(res.px,res.floor,G.dest.px,G.dest.floor,"any"); $("modeRow").hidden=true; }
+  if(!G.route){ setInstr("warn",t("noRoute"),t("noRouteSub"),"warn"); if(shot) shot.instruction=t("noRoute"); return; }
+  if(shot){ shot.route_nodes=G.route.path.map(n=>n.id).join(">"); shot.route_length_m=G.route.length.toFixed(1); shot.route_mode=cross?G.routeMode:""; }
+  const L=legs(G.route); const here=L[0]; const remain=G.route.length;
   let k=1; while(k<here.pts.length && Math.hypot(here.pts[k][0]-here.pts[0][0],here.pts[k][1]-here.pts[0][1])<3) k++;
   const nxt=here.pts[Math.min(k,here.pts.length-1)]; const word=here.pts.length>1?turnWord(res.dir,bearing(here.pts[0],nxt)):t("ahead");
   const d=((bearing(here.pts[0],nxt)-res.dir+540)%360)-180; const icon=Math.abs(d)<=30?"arrow":d>30&&d<150?"right":d<-30&&d>-150?"left":"back";
-  if(L.length>1){ const nf=L[1].floor; const toEv=legLen(here);
-    if(toEv<4){ setInstr("ev",t("goFloor",{f:nf}),t("goFloorSub",{f:nf})); shot.instruction=t("goFloor",{f:nf}); }
-    else { setInstr(icon,t("toEv",{dir:word}),t("toEvSub",{m:Math.round(toEv),f:nf})); shot.instruction=t("toEv",{dir:word}); } }
-  else { setInstr(icon,t("go",{dir:word}),t("goSub",{m:Math.round(remain)})); shot.instruction=word; }
+  let instr;
+  if(L.length>1){ const nf=L[1].floor, toL=legLen(here), st=G.route.via==="stairs", via=t(st?"viaSt":"viaEv");
+    if(toL<4){ instr=t("goFloor",{via,f:nf}); setInstr(st?"stairs":"ev",instr,t("goFloorSub",{f:nf})); }
+    else { instr=t("toEv",{dir:word}); setInstr(icon,instr,t("toEvSub",{via,m:Math.round(toL),f:nf})); } }
+  else { instr=word; setInstr(icon,t("go",{dir:word}),t("goSub",{m:Math.round(remain)})); }
   $("hudMeta").textContent=`${G.dest.floor}・約${Math.round(remain)}m`;
-  pushShot(shot); viewFloor(res.floor,true);
+  if(shot) shot.instruction=instr;
+}
+function renderModeRow(a){
+  const row=$("modeRow"); if(!(a.ev&&a.stairs)){ row.hidden=true; return; } row.hidden=false;
+  row.innerHTML=[["ev","routeEv"],["stairs","routeSt"]].map(([m,k])=>`<button type="button" data-m="${m}" class="${G.routeMode===m?"on":""}" style="line-height:1.25"><span style="display:block">${t(k)}</span><span style="display:block;font-size:12px;font-weight:500;opacity:.85">約${Math.round(a[m].length)}m</span></button>`).join("");
+  row.querySelectorAll("button").forEach(b=>b.onclick=()=>{ if(G.routeMode===b.dataset.m) return; G.routeMode=b.dataset.m;
+    SESSION.routeChanges=(SESSION.routeChanges||[]).concat([{time:new Date().toISOString(),mode:G.routeMode}]); saveSession();
+    applyRoute(null); viewFloor(G.viewFloor||G.est.floor,true); });
 }
 
 // =====================================================================
@@ -533,10 +643,10 @@ async function allSessionsMerged(){
 }
 function csv(rows){ return "﻿"+rows.map(r=>r.map(v=>{ v=v==null?"":String(v); return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; }).join(",")).join("\r\n"); }
 async function exportLogs(){
-  const ss=await allSessionsMerged(); const H=["session_id","subject_id","condition","destination","shot_no","time","since_start_s","since_prev_s","result","reason","floor","x_m","y_m","dir_deg","inliers","conf","best_point","best_file","proc_ms","route_nodes","route_length_m","instruction","top5"];
+  const ss=await allSessionsMerged(); const H=["session_id","subject_id","condition","destination","shot_no","time","since_start_s","since_prev_s","result","reason","floor","x_m","y_m","dir_deg","inliers","conf","best_point","best_file","proc_ms","route_nodes","route_length_m","route_mode","instruction","top5","method","tag_id","tag_dist_m","tag_angle_deg","tag_side_px","tags_seen"];
   const rows=[H]; for(const s of ss) for(const x of s.shots) rows.push([s.id,s.subject_id,s.condition,s.destination,...H.slice(4).map(k=>x[k])]);
-  const SH=["session_id","subject_id","condition","destination","dest_floor","dest_x_m","dest_y_m","start","end","duration_s","shots","rejects","arrived","arrived_at"];
-  const srows=[SH]; for(const s of ss){ const dur=s.end?((Date.parse(s.end)-s.startMs)/1000).toFixed(1):""; const dm=s.dest?toM(s.dest.px,s.dest.floor):null; srows.push([s.id,s.subject_id,s.condition,s.destination,s.dest?s.dest.floor:"",dm?dm[0].toFixed(2):"",dm?dm[1].toFixed(2):"",s.start,s.end,dur,s.shots.length,s.shots.filter(x=>x.result!=="success").length,s.arrived,s.arrivedAt||""]); }
+  const SH=["session_id","subject_id","condition","destination","dest_floor","dest_x_m","dest_y_m","start","end","duration_s","shots","rejects","arrived","arrived_at","route_changes"];
+  const srows=[SH]; for(const s of ss){ const dur=s.end?((Date.parse(s.end)-s.startMs)/1000).toFixed(1):""; const dm=s.dest?toM(s.dest.px,s.dest.floor):null; srows.push([s.id,s.subject_id,s.condition,s.destination,s.dest?s.dest.floor:"",dm?dm[0].toFixed(2):"",dm?dm[1].toFixed(2):"",s.start,s.end,dur,s.shots.length,s.shots.filter(x=>x.result!=="success").length,s.arrived,s.arrivedAt||"",(s.routeChanges||[]).map(x=>x.time.slice(11,19)+":"+x.mode).join(" ")]); }
   const st=stamp(); const zip=await makeZip([[`shots_${st}.csv`,csv(rows)],[`sessions_${st}.csv`,csv(srows)]]); await saveFile(`vps_logs_${st}.zip`,zip);
 }
 const stamp=()=>new Date().toISOString().slice(0,16).replace(/[-:T]/g,"");
@@ -588,7 +698,7 @@ function esc(s){ return String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",
 // =====================================================================
 // 管理画面
 // =====================================================================
-let AV=null, AT="dest", AF="1F", netSel=null, floorLinkFirst=null;
+let AV=null, AT="dest", AF="1F", netSel=null, floorLinkFirst=null, ADMTAG={id:0,face:0}, ADMTEST=null;
 $("btnAdmin").onclick=()=>openAdmin();
 function openAdmin(){
   show("admin");
@@ -608,7 +718,7 @@ function renderAdmin(){
   document.querySelectorAll("#admin [data-at]").forEach(b=>b.classList.toggle("on",b.dataset.at===AT));
   $("admFloors").querySelectorAll("button").forEach(b=>b.classList.toggle("on",b.dataset.af===AF));
   const P=$("apanel"); const T=CFG.thresholds;
-  const hints={dest:"地図をタップして目的地を置きます",start:"地図をタップして紙用ルートの出発地点を置きます",net:"地点をタップして選び、別の地点をタップすると通路をつなぎます",th:"",log:"",exp:""};
+  const hints={tag:"地図をタップすると、選んだIDの目印をその場所に置きます",dest:"地図をタップして目的地を置きます",start:"地図をタップして紙用ルートの出発地点を置きます",net:"地点をタップして選び、別の地点をタップすると通路をつなぎます",th:"",log:"",exp:""};
   $("admHint").textContent=hints[AT]||"";
   if(AT==="dest"){ const d=CFG.dests[0];
     P.innerHTML=`<p><b>目的地</b>（1か所）</p><p>${d?`${esc(d.name)}（${d.floor}・x=${toM(d.px,d.floor)[0].toFixed(1)}m, y=${toM(d.px,d.floor)[1].toFixed(1)}m）`:"未設定"}</p>
@@ -619,19 +729,42 @@ function renderAdmin(){
     P.innerHTML=`<p><b>出発地点（紙の条件用）</b></p><p>${s?`${s.floor}・x=${toM(s.px,s.floor)[0].toFixed(1)}m, y=${toM(s.px,s.floor)[1].toFixed(1)}m`:"未設定"}</p><p class="sub">「書き出し」で、この出発地点から目的地までのルート画像（案内画面と同じ見た目）を作れます。</p>`;
   } else if(AT==="net"){
     P.innerHTML=`<p><b>通路ネットワーク</b>　地点 ${CFG.network.nodes.length}・通路 ${CFG.network.edges.length}</p>
-      <div class="row"><button class="btn small" id="nAdd">地点を追加モード</button><button class="btn small" id="nDel">選択中の地点を削除</button><button class="btn small" id="nLink">選択中の地点を階の接続に</button><button class="btn small" id="nReset">初期案に戻す</button></div>
-      <p class="sub">選択中：${netSel||"なし"}${floorLinkFirst?`／階の接続：${floorLinkFirst} → 別の階の地点をタップ`:""}<br>水色＝通路、点線＝階の接続（EV）。同じ2地点をもう一度つなぐと通路を削除します。</p>`;
+      <div class="row"><button class="btn small" id="nAdd">地点を追加モード</button><button class="btn small" id="nDel">選択中の地点を削除</button><button class="btn small" id="nLinkEv">EVで別の階へ接続</button><button class="btn small" id="nLinkSt">階段で別の階へ接続</button><button class="btn small" id="nReset">初期案に戻す</button></div>
+      <p class="sub">選択中：${netSel||"なし"}${floorLinkFirst?`／${floorLinkFirst.kind==="stairs"?"階段":"EV"}で接続：${floorLinkFirst.id} → 別の階の地点をタップ`:""}<br>青い線＝通路、黒いマーク＝階の接続（EV／階段）。同じ2地点をもう一度つなぐと通路を削除します。</p>`;
     $("nAdd").onclick=()=>{ netSel="__add"; renderAdmin(); };
     $("nDel").onclick=()=>{ if(!netSel||netSel==="__add") return; CFG.network.edges=CFG.network.edges.filter(e=>e[0]!==netSel&&e[1]!==netSel); CFG.network.nodes=CFG.network.nodes.filter(n=>n.id!==netSel); netSel=null; saveCfg(); renderAdmin(); };
-    $("nLink").onclick=()=>{ if(!netSel||netSel==="__add") return; floorLinkFirst=netSel; toast("別の階に切り替えて、つなぐ地点をタップ"); renderAdmin(); };
+    const startLink=kind=>{ if(!netSel||netSel==="__add") return; floorLinkFirst={id:netSel,kind}; toast("別の階に切り替えて、つなぐ地点をタップ"); renderAdmin(); };
+    $("nLinkEv").onclick=()=>startLink("ev"); $("nLinkSt").onclick=()=>startLink("stairs");
     $("nReset").onclick=()=>{ CFG.network=clone(DEFAULT_CFG.network); netSel=null; saveCfg(); renderAdmin(); };
+  } else if(AT==="tag"){
+    const tags=CFG.tags||(CFG.tags=[]); const fl=[["0","上"],["45","右上"],["90","右"],["135","右下"],["180","下"],["225","左下"],["270","左"],["315","左上"]];
+    P.innerHTML=`<p><b>人工ランドマーク（AprilTag 36h11）</b>　登録 ${tags.length}枚</p>
+      <div style="max-height:84px;overflow:auto;font-size:12px">${tags.map(t=>{ const m=toM(t.px,t.floor); return `ID${t.id}　${t.floor}・x=${m[0].toFixed(1)}, y=${m[1].toFixed(1)}m・面の向き${t.face}° <button class="btn small" data-tdel="${t.id}" style="padding:2px 8px">削除</button>`; }).join("<br>")||"未登録"}</div>
+      <div class="row"><label>ID <input type="number" id="tgId" min="0" value="${ADMTAG.id}" style="width:56px"></label><label>面が向く方向（図面上） <select id="tgFace" style="background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.25);border-radius:8px;padding:6px">${fl.map(([v,l])=>`<option value="${v}"${+v===ADMTAG.face?" selected":""}>${l}（${v}°）</option>`).join("")}</select></label></div>
+      <div class="row"><label>一辺(m) <input type="number" step="0.01" id="tgSz" value="${CFG.tagSize}" style="width:64px"></label><label>焦点距離(35mm換算) <input type="number" id="tgF" value="${CFG.f35}" style="width:56px"></label><label>使う最大距離(m) <input type="number" id="tgMax" value="${CFG.tagMaxDist}" style="width:56px"></label><button class="btn small" id="tgSave">保存</button></div>
+      <div class="row"><label><input type="checkbox" id="tgDiag"${diagOn()?" checked":""}> 案内画面に診断表示（実験者向け）</label><button class="btn small" id="tgTest">写真で目印を試す</button></div>
+      <p class="sub" id="tgRes" style="white-space:pre-line">${ADMTEST?esc(ADMTEST.text):"面が向く方向＝目印の正面が向いている方向（例：図面の下側の通路から見る目印なら「下」）。"}</p>`;
+    $("tgId").onchange=()=>{ ADMTAG.id=Math.max(0,parseInt($("tgId").value)||0); };
+    $("tgFace").onchange=()=>{ ADMTAG.face=+$("tgFace").value; const t=tags.find(x=>x.id===ADMTAG.id); if(t){ t.face=ADMTAG.face; saveCfg(); renderAdmin(); } };
+    P.querySelectorAll("[data-tdel]").forEach(b=>b.onclick=()=>{ CFG.tags=tags.filter(t=>t.id!==+b.dataset.tdel); saveCfg(); renderAdmin(); });
+    $("tgSave").onclick=()=>{ CFG.tagSize=+$("tgSz").value||0.16; CFG.f35=+$("tgF").value||28; CFG.tagMaxDist=+$("tgMax").value||12; saveCfg(); };
+    $("tgDiag").onchange=()=>{ lsSet("vpsguide_diag",$("tgDiag").checked); toast($("tgDiag").checked?"診断表示：オン":"診断表示：オフ"); };
+    $("tgTest").onclick=()=>{ let fi=$("tgFile"); if(!fi){ fi=document.createElement("input"); fi.type="file"; fi.accept="image/*"; fi.capture="environment"; fi.id="tgFile"; fi.hidden=true; document.body.appendChild(fi);
+        fi.onchange=async e=>{ const f=e.target.files[0]; e.target.value=""; if(!f) return; $("tgRes").textContent="検出中…"; const t0=performance.now();
+          let ps=[]; try{ ps=await detectTagsInFile(f); }catch(err){ $("tgRes").textContent="エラー："+(err.message||err); return; }
+          const ms=Math.round(performance.now()-t0);
+          ADMTEST={ps, text:ps.length?ps.map(p=>`ID${p.id}：距離${p.dist.toFixed(2)}m・正面から${p.angle>=0?"右":"左"}${Math.abs(p.angle).toFixed(0)}°・一辺${p.sidePx.toFixed(0)}画素`+(p.reg?`\n　→ 推定位置 ${p.floor} x=${toM(p.px,p.floor)[0].toFixed(2)} y=${toM(p.px,p.floor)[1].toFixed(2)}m・向き${Math.round(p.dir)}°`:"（未登録）")).join("\n")+`\n（${ms}ms）`:`目印が見つかりませんでした（${ms}ms）`};
+          const r=ps.find(p=>p.reg); if(r&&r.floor!==AF){ AF=r.floor; AV.setFloor(AF); }
+          renderAdmin(); }; }
+      fi.click(); };
   } else if(AT==="th"){
     P.innerHTML=`<p><b>推定のしきい値</b>　誤った位置を出さないことを優先します。</p>
       <div class="row"><label>最小一致点 <input type="number" id="tIn" value="${T.minInliers}"></label><label>最小信頼度 <input type="number" step="0.05" id="tCf" value="${T.minConf}"></label></div>
       <div class="row"><label>別候補とみなす距離(m) <input type="number" id="tRv" value="${T.rivalDist}"></label><label>到着判定(m) <input type="number" id="tAr" value="${T.arriveDist}"></label></div>
+      <div class="row"><label>EVの負担(m相当) <input type="number" id="tEv" value="${CFG.floorCost}"></label><label>階段の負担(m相当) <input type="number" id="tSt" value="${CFG.stairsCost??20}"></label></div>
       <div class="row"><button class="btn small" id="tSave">保存</button></div>
       <p class="sub">信頼度＝1−（「別候補とみなす距離」以上離れた場所の最大一致点 ÷ 1位の一致点）。どちらかが基準未満なら「位置を特定できません」と表示します。</p>`;
-    $("tSave").onclick=()=>{ Object.assign(CFG.thresholds,{minInliers:+$("tIn").value,minConf:+$("tCf").value,rivalDist:+$("tRv").value,arriveDist:+$("tAr").value}); saveCfg(); };
+    $("tSave").onclick=()=>{ Object.assign(CFG.thresholds,{minInliers:+$("tIn").value,minConf:+$("tCf").value,rivalDist:+$("tRv").value,arriveDist:+$("tAr").value}); CFG.floorCost=+$("tEv").value; CFG.stairsCost=+$("tSt").value; saveCfg(); };
   } else if(AT==="log"){
     P.innerHTML=`<p><b>実験ログ</b></p><p id="logSum">集計中…</p><div class="row"><button class="btn small" id="lExp">ログを書き出し（CSV×2をZIPで）</button></div><p class="sub">記録項目：被験者ID・条件・目的地・撮影時刻・推定結果（階・x・y・向き）・一致点・信頼度・成功/失敗・処理時間・表示したルート・再撮影の間隔。撮影画像は保存しません。</p>`;
     allSessionsMerged().then(ss=>{ const n=ss.reduce((a,s)=>a+s.shots.length,0); $("logSum").textContent=`セッション ${ss.length}件／撮影 ${n}回`; });
@@ -646,13 +779,15 @@ function renderAdmin(){
   drawAdmin();
 }
 function adminTap(p){
+  if(AT==="tag"){ const tags=CFG.tags||(CFG.tags=[]); const o=tags.find(t=>t.id===ADMTAG.id); const rec={id:ADMTAG.id,floor:AF,px:[+p[0].toFixed(1),+p[1].toFixed(1)],face:o&&o.floor===AF?o.face:ADMTAG.face};
+    if(o) Object.assign(o,rec); else tags.push(rec); tags.sort((a,b)=>a.id-b.id); ADMTAG.face=rec.face; saveCfg(); renderAdmin(); return; }
   if(AT==="dest"){ const nm=(CFG.dests[0]&&CFG.dests[0].name)||"目的地"; CFG.dests=[{id:"D1",name:nm,floor:AF,px:[+p[0].toFixed(1),+p[1].toFixed(1)]}]; saveCfg(); renderAdmin(); return; }
   if(AT==="start"){ CFG.start={floor:AF,px:[+p[0].toFixed(1),+p[1].toFixed(1)]}; saveCfg(); renderAdmin(); return; }
   if(AT!=="net") return;
   const hitR=22/AV.s; const hit=CFG.network.nodes.filter(n=>n.floor===AF).find(n=>Math.hypot(n.px[0]-p[0],n.px[1]-p[1])<hitR);
   if(netSel==="__add"){ if(!hit){ let i=1; while(nodeById("N"+i)) i++; CFG.network.nodes.push({id:"N"+i,floor:AF,px:[+p[0].toFixed(1),+p[1].toFixed(1)]}); netSel="N"+i; saveCfg(); } else netSel=hit.id; renderAdmin(); return; }
   if(!hit){ netSel=null; renderAdmin(); return; }
-  if(floorLinkFirst&&nodeById(floorLinkFirst).floor!==AF){ CFG.network.edges.push([floorLinkFirst,hit.id,"floor"]); nodeById(floorLinkFirst).kind="ev"; hit.kind="ev"; floorLinkFirst=null; netSel=null; saveCfg(); renderAdmin(); return; }
+  if(floorLinkFirst&&nodeById(floorLinkFirst.id).floor!==AF){ const k=floorLinkFirst.kind; CFG.network.edges.push([floorLinkFirst.id,hit.id,k]); nodeById(floorLinkFirst.id).kind=k; hit.kind=k; floorLinkFirst=null; netSel=null; saveCfg(); renderAdmin(); return; }
   if(netSel&&netSel!==hit.id){ const i=CFG.network.edges.findIndex(e=>(e[0]===netSel&&e[1]===hit.id)||(e[1]===netSel&&e[0]===hit.id));
     if(i>=0) CFG.network.edges.splice(i,1); else CFG.network.edges.push([netSel,hit.id]); netSel=hit.id; saveCfg(); renderAdmin(); return; }
   netSel=hit.id; renderAdmin();
@@ -660,14 +795,19 @@ function adminTap(p){
 function drawAdmin(){
   if(!AV) return; const s=AV.s; let h=DEFS;
   for(const [a,b,type] of CFG.network.edges){ const A=nodeById(a),B=nodeById(b); if(!A||!B) continue;
-    if(type==="floor"){ for(const n of [A,B]) if(n.floor===AF) h+=evMarker(n.px,s); continue; }
+    if(isLink(type)){ for(const n of [A,B]) if(n.floor===AF) h+=(linkKind(type)==="stairs"?stairMarker:evMarker)(n.px,s); continue; }
     if(A.floor!==AF) continue; h+=`<line x1="${A.px[0]}" y1="${A.px[1]}" x2="${B.px[0]}" y2="${B.px[1]}" stroke="#1f5fd6" stroke-opacity=".8" stroke-width="3" vector-effect="non-scaling-stroke"/>`; }
   for(const n of CFG.network.nodes) if(n.floor===AF){ const sel=n.id===netSel; h+=`<circle cx="${n.px[0]}" cy="${n.px[1]}" r="${(sel?9:6)/s}" fill="${sel?"#ffb86b":"#e9fbff"}" stroke="#2f6dff" stroke-width="${2/s}"/><text x="${n.px[0]+10/s}" y="${n.px[1]-8/s}" font-size="${11/s}" fill="#1a3550" font-family="-apple-system,sans-serif">${n.id}</text>`; }
   for(const d of CFG.dests) if(d.floor===AF) h+=destMarker(d.px,s);
   if(CFG.start&&CFG.start.floor===AF) h+=youMarker(CFG.start.px,0,s,false);
+  for(const t of (CFG.tags||[])) if(t.floor===AF) h+=tagMarker(t,s,AT==="tag"&&t.id===ADMTAG.id);
+  if(AT==="tag"&&ADMTEST) for(const p of ADMTEST.ps) if(p.reg&&p.floor===AF) h+=youMarker(p.px,p.dir,s);
   if((AT==="start"||AT==="exp")&&CFG.start&&CFG.dests[0]){ const r=route(CFG.start.px,CFG.start.floor,CFG.dests[0].px,CFG.dests[0].floor); if(r) for(const l of legs(r)) if(l.floor===AF) h+=routeSvg(l.pts); }
   $("aov").innerHTML=h;
 }
+// 目印：四角＋正面方向の矢印（図面の上＝0°、時計回り）
+function tagMarker(t,s,sel){ const a=t.face*Math.PI/180, dx=Math.sin(a), dy=-Math.cos(a);
+  return `<g transform="translate(${t.px[0]} ${t.px[1]}) scale(${1/s})"><line x1="0" y1="0" x2="${dx*26}" y2="${dy*26}" stroke="#d33" stroke-width="2.5"/><circle cx="${dx*26}" cy="${dy*26}" r="3.5" fill="#d33"/><rect x="-8" y="-8" width="16" height="16" fill="#111" stroke="${sel?"#ffb86b":"#fff"}" stroke-width="${sel?3:1.5}"/><text x="11" y="-10" font-size="12" font-weight="700" fill="#b00" font-family="-apple-system,sans-serif">T${t.id}</text></g>`; }
 function stationJson(){ return {version:1, station:"スマートステーション", cal:BASE.cal, points:BASE.points, refs:BASE.refs.map(r=>({file:r.file,point:r.point,floor:r.floor,px:r.px,dir:r.dir})), guide:CFG}; }
 
 // 紙用ルート画像：案内画面と同じ色・線で描く
@@ -683,7 +823,7 @@ async function exportPaper(){
     x.translate(-x0,-y0+90); x.lineJoin="round"; x.lineCap="round";
     const path=()=>{ x.beginPath(); l.pts.forEach((p,i)=>i?x.lineTo(p[0],p[1]):x.moveTo(p[0],p[1])); };
     path(); x.strokeStyle="rgba(47,109,255,.28)"; x.lineWidth=26; x.stroke(); path(); x.strokeStyle="#2f6dff"; x.lineWidth=11; x.stroke(); path(); x.setLineDash([4,18]); x.strokeStyle="#ffffff"; x.lineWidth=6; x.stroke(); x.setLineDash([]);
-    for(const n of r.path) if(n.kind==="ev"&&n.floor===l.floor){ x.fillStyle="#1a1a1a"; x.strokeStyle="#ffffff"; x.lineWidth=3; x.fillRect(n.px[0]-28,n.px[1]-28,56,56); x.strokeRect(n.px[0]-28,n.px[1]-28,56,56); x.fillStyle="#ffffff"; x.font="700 26px -apple-system,sans-serif"; x.textAlign="center"; x.fillText("EV",n.px[0],n.px[1]+9); x.textAlign="left"; }
+    for(const n of r.links||[]) if(n.floor===l.floor){ x.fillStyle="#1a1a1a"; x.strokeStyle="#ffffff"; x.lineWidth=3; x.fillRect(n.px[0]-30,n.px[1]-28,60,56); x.strokeRect(n.px[0]-30,n.px[1]-28,60,56); x.fillStyle="#ffffff"; x.font="700 24px -apple-system,sans-serif"; x.textAlign="center"; x.fillText(n.kind==="stairs"?"階段":"EV",n.px[0],n.px[1]+9); x.textAlign="left"; }
     if(s0.floor===l.floor){ x.fillStyle="#e9fbff"; x.beginPath(); x.arc(s0.px[0],s0.px[1],20,0,7); x.fill(); x.fillStyle="#2f6dff"; x.beginPath(); x.arc(s0.px[0],s0.px[1],13,0,7); x.fill(); x.fillStyle="#1a1a1a"; x.font="700 24px -apple-system,sans-serif"; x.fillText("スタート",s0.px[0]+28,s0.px[1]+8); }
     if(d.floor===l.floor){ x.fillStyle="#2f6dff"; x.strokeStyle="#ffffff"; x.lineWidth=4; x.fillRect(d.px[0]-24,d.px[1]-24,48,48); x.strokeRect(d.px[0]-24,d.px[1]-24,48,48); x.fillStyle="#1a1a1a"; x.font="700 24px -apple-system,sans-serif"; x.fillText(d.name,d.px[0]+34,d.px[1]+8); }
     out.push(c); }
